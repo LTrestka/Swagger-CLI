@@ -65,7 +65,7 @@ from ferry_cli.helpers.supported_workflows.NewCapabilitySet import NewCapability
                 ),
                 (
                     "Would call endpoint: https://example.com/createCapabilitySet with params\n"
-                    + "{'setname': 'testcapabilityset', 'pattern': 'scope1,scope2', 'token_subject': 'none'}"
+                    + "{'setname': 'testcapabilityset', 'pattern': 'scope1,scope2', 'tokensubject': 'none'}"
                 ),
                 (
                     "Would call endpoint: https://example.com/addCapabilitySetToFQAN with params\n"
