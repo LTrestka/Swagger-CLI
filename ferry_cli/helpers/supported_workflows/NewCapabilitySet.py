@@ -71,6 +71,14 @@ class NewCapabilitySet(Workflow):
                 "type": "string",
                 "required": False,
             },
+            {
+                "name": "vault_storage_key",
+                "description": (
+                    'The default will just be setname, but if the intent is to not store this vault storage key in LDAP, set this to the string "none"'
+                ),
+                "type": "string",
+                "required": False,
+            },
         ]
         super().__init__()
 
@@ -244,7 +252,9 @@ class NewCapabilitySet(Workflow):
                 "pattern": args["scopes_pattern"],
             }
             if args.get("token_subject", None) is not None:
-                new_cap_set_params["token_subject"] = args["token_subject"]
+                new_cap_set_params["tokensubject"] = args["token_subject"]
+            if args.get("vault_storage_key", None) is not None:
+                new_cap_set_params["vaultstoragekey"] = args["vault_storage_key"]
 
             self.verify_output(
                 api,
