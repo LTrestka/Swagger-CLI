@@ -621,7 +621,9 @@ def main() -> None:
     try:
         auth_args, other_args = get_auth_args()
         ferry_cli = FerryCLI(
-            config_path=config_path, authorizer=set_auth_from_args(auth_args)
+            config_path=config_path,
+            authorizer=set_auth_from_args(auth_args),
+            base_url=auth_args.server,
         )
         if auth_args.update or not os.path.exists(f"{CONFIG_DIR}/swagger.json"):
             if auth_args.debug_level != DebugLevel.QUIET:

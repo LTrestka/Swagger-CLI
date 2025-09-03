@@ -214,6 +214,11 @@ def get_auth_parser() -> "FerryParser":
         action=request_project_info("email"),
     )
     auth_parser.add_argument(
+        "-s",
+        "--server",
+        help="Server URL to use instead of configuration file api.base_url value",
+    )
+    auth_parser.add_argument(
         "--version",
         nargs=0,
         help="Get Ferry CLI version",
