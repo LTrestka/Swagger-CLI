@@ -124,39 +124,43 @@ def test_handle_show_configfile_envs_not_found(
     assert "Mocked write_config_file" in captured.out
 
 
+@pytest.mark.parametrize(
+    "args, expected_out_substr",
+    [
+        (
+            ["-h"],
+            "--show-config-file",
+        ),  # If we pass -h, make sure --show-config-file shows up
+        (
+            ["-h", "--show-config-file", "-e", "getAllGroups"],
+            "--show-config-file",
+        ),  # If we pass -h and --show-config-file, -h should win
+        (
+            ["--show-config-file"],
+            "Configuration file",
+        ),  # Print out config file if we only pass --show-config-file
+        (
+            ["--show-config-file", "-e", "getAllGroups"],
+            "Configuration file",
+        ),  # If we pass --show-config-file with other args, --show-config-file should print out the config file
+    ],
+)
 @pytest.mark.unit
 def test_show_configfile_flag_with_other_args(
-    tmp_path, monkeypatch, write_and_set_fake_config_file
+    tmp_path, monkeypatch, write_and_set_fake_config_file, args, expected_out_substr
 ):
     # Since we have to handle --show-config-file outside of argparse, make sure we get the correct behavior given different combinations of args
     bindir = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/bin"
     exe = f"{bindir}/ferry-cli"
 
-    test_case = namedtuple("TestCase", ["args", "expected_out_substr"])
+    exe_args = [sys.executable, exe]
+    exe_args.extend(args)
 
-    cases = (
-        test_case(
-            [sys.executable, exe, "-h"], "--show-config-file"
-        ),  # If we pass -h, make sure --show-config-file shows up
-        test_case(
-            [sys.executable, exe, "-h", "--show-config-file", "-e", "getAllGroups"],
-            "--show-config-file",
-        ),  # If we pass -h and --show-config-file, -h should win
-        test_case(
-            [sys.executable, exe, "--show-config-file"], "Configuration file"
-        ),  # Print out config file if we only pass --show-config-file
-        test_case(
-            [sys.executable, exe, "--show-config-file", "-e", "getAllGroups"],
-            "Configuration file",
-        ),  # If we pass --show-config-file with other args, --show-config-file should print out the config file
-    )
-
-    for case in cases:
-        try:
-            proc = subprocess.run(case.args, capture_output=True)
-        except SystemExit:
-            pass
-        assert case.expected_out_substr in str(proc.stdout)
+    try:
+        proc = subprocess.run(exe_args, capture_output=True)
+    except SystemExit:
+        pass
+    assert expected_out_substr in str(proc.stdout)
 
 
 @pytest.mark.unit
@@ -302,3 +306,70 @@ def test_handle_no_args_configfile_does_not_exist(
 
     assert pytest_wrapped_e.type == SystemExit
     assert pytest_wrapped_e.value.code == 0
+
+
+@pytest.mark.parametrize(
+    "base_url, expected_base_url",
+    [
+        (None, "https://example.com:12345/"),  # Get base_url from config
+        (
+            "https://override_example.com:54321/",
+            "https://override_example.com:54321/",
+        ),  # Get base_url from override
+    ],
+)
+@pytest.mark.unit
+def test_override_base_url_FerryCLI(tmp_path, base_url, expected_base_url):
+    # Set up fake config
+    fake_config_text = """
+[api]
+base_url = https://example.com:12345/
+dev_url = https://example.com:12345/
+
+"""
+    fake_config = tmp_path / "config.ini"
+    fake_config.write_text(fake_config_text)
+
+    cli = FerryCLI(config_path=fake_config, base_url=base_url)
+    assert cli.base_url == expected_base_url
+
+
+@pytest.mark.parametrize(
+    "args, expected_out_url",
+    [
+        ([], "https://example.com:12345/"),  # Get base_url from config
+        (
+            ["--server", "https://override_example.com:54321/"],
+            "https://override_example.com:54321/",
+        ),  # Get base_url from override
+    ],
+)
+@pytest.mark.test
+def test_server_flag_main(tmp_path, monkeypatch, args, expected_out_url):
+    # Run ferry-cli with overridden base_url in dryrun mode to endpoint ping. Then see if we see the correct server in output
+    override_url = "https://override_example.com:54321/"
+    # Set up fake config
+    fake_config_text = """
+[api]
+base_url = https://example.com:12345/
+dev_url = https://example.com:12345/
+
+"""
+    # Fake config file
+    p = tmp_path
+    config_dir = p / "ferry_cli"
+    config_dir.mkdir()
+    config_file = config_dir / "config.ini"
+    config_file.write_text(fake_config_text)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(p.absolute()))
+
+    bindir = f"{os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}/bin"
+    exe = f"{bindir}/ferry-cli"
+
+    exe_args = [sys.executable, exe]
+    exe_args.extend(args + ["--dryrun", "-e", "ping"])
+
+    proc = subprocess.run(exe_args, capture_output=True)
+    assert f"Would call endpoint: {expected_out_url}ping with params" in str(
+        proc.stdout
+    )
