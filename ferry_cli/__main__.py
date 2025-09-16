@@ -453,7 +453,7 @@ class FerryCLI:
             "/pingus/aa//e/"        → "/pingus/aa/e/"
         """
         # Collapse multiple slashes
-        cleaned = re.sub(r"/+", "/", raw_path.strip())
+        cleaned = re.sub(r"/+", "/", raw_path.strip("/"))
         # Handle special case: empty path
         if not cleaned:
             return "/"
