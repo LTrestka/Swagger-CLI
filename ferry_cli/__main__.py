@@ -605,15 +605,25 @@ def handle_no_args(_config_path: Optional[pathlib.Path]) -> bool:
 def handle_arg_capitalization(
     endpoints: Dict[str, Any], arguments: List[str]
 ) -> List[str]:
-    # check to see if the arguments supplied are for an endpoint. IE a "-e" was supplied
     for idx, arg in enumerate(arguments):
         if arg.lower() in {"-e", "--endpoint", "-ep", "--endpoint_params"} and (
-            idx + 1
-        ) < len(arguments):
-            # Convert to lowerCamelCase (from snake_case or kebab-case)
+            idx + 1 < len(arguments)
+        ):
             raw_arg = arguments[idx + 1]
-            ep = "".join(part.capitalize() for part in re.split(r"[_-]", raw_arg[1:]))
-            ep = ep[0].lower() + ep[1:] if ep else ""
+
+            # Extract and preserve a single leading underscore, if any
+            leading_underscore = "_" if raw_arg.startswith("_") else ""
+
+            # Remove all leading underscores before processing
+            stripped = raw_arg.lstrip("_")
+
+            # Convert to lowerCamelCase from snake_case or kebab-case
+            parts = re.split(r"[_-]+", stripped)
+            if not parts:
+                continue
+
+            camel = parts[0].lower() + "".join(part.capitalize() for part in parts[1:])
+            ep = leading_underscore + camel
 
             # Match endpoint case-insensitively and replace original argument if found
             matched_ep = next((e for e in endpoints if e.lower() == ep.lower()), None)

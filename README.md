@@ -242,6 +242,7 @@ Response: {
 }
 ```
 > Note: All responses are currently stored locally in results.json if the -q flag is not passed, for longer responses - stdout will point to the file, rather than print them in the terminal.
+> Endpoints & Workflows that are passed as arguments will be converted to camelCase automatically, however - leading underscores will be preserved, so be sure to use the correct spelling.
 
 ## Usage - Custom Workflows
 Existing workflows are defined in helpers.supported_workflows.*
