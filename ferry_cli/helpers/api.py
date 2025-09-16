@@ -81,6 +81,10 @@ class FerryAPI:
                 raise ValueError("Unsupported HTTP method.")
             if debug:
                 print(f"Called Endpoint: {response.request.url}")
+            if not response.ok:
+                raise RuntimeError(
+                    f" *** API Failure: Status code {response.status_code} returned from endpoint /{endpoint}"
+                )
             output = response.json()
 
             output["request_url"] = response.request.url

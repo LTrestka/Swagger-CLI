@@ -444,46 +444,39 @@ class FerryCLI:
         - Collapses multiple internal slashes
         - Ensures exactly one leading slash
         - Ensures exactly one trailing slash
-
-        Examples:
-            "path//to///resource"   → "/path/to/resource/"
-            "/path/to/resource"     → "/path/to/resource/"
-            "///ping"               → "/ping/"
-            "/ping///"              → "/ping/"
-            "/pingus/aa//e/"        → "/pingus/aa/e/"
         """
-        # Collapse multiple slashes
-        cleaned = re.sub(r"/+", "/", raw_path.strip("/"))
-        # Handle special case: empty path
-        if not cleaned:
-            return "/"
-        return "/" + cleaned.strip("/") + "/"
+        cleaned = re.sub(r"/+", "/", raw_path.strip())
+        return "/" + cleaned.strip("/") + "/" if cleaned else "/"
 
     @staticmethod
     def _sanitize_base_url(raw_base_url: str) -> str:
         """
-        Ensures that the base URL:
-        - Has a normalized path (leading + trailing slash, collapsed slashes)
-        - Leaves query and fragment unchanged
+        Ensures the base URL has a trailing slash **only if**:
+        - It does not already have one
+        - It does not include query or fragment parts
 
-        Will only modify the URL if:
-        - The query and fragment are empty, OR
-        - The path is non-empty and needs sanitization
+        Leaves URLs with query or fragment untouched.
         """
-        _parts = urlsplit(raw_base_url)
+        parts = urlsplit(raw_base_url)
 
-        # Always sanitize the path
-        sanitized_path = FerryCLI._sanitize_path(_parts.path)
+        # If query or fragment is present, return as-is
+        if parts.query or parts.fragment:
+            return raw_base_url
 
-        parts = SplitResult(
-            scheme=_parts.scheme,
-            netloc=_parts.netloc,
-            path=sanitized_path,
-            query=_parts.query,
-            fragment=_parts.fragment,
+        # Normalize the path (ensure trailing slash)
+        path = parts.path or "/"
+        if not path.endswith("/"):
+            path += "/"
+
+        # Collapse multiple slashes in path
+        path = re.sub(r"/+", "/", path)
+
+        # Rebuild the URL with sanitized path
+        sanitized_parts = SplitResult(
+            scheme=parts.scheme, netloc=parts.netloc, path=path, query="", fragment=""
         )
 
-        return urlunsplit(parts)
+        return urlunsplit(sanitized_parts)
 
     def __parse_config_file(self: "FerryCLI") -> configparser.ConfigParser:
         configs = configparser.ConfigParser()
