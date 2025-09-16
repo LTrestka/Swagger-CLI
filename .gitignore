@@ -1,9 +1,17 @@
+# Build artifacts
+build/
+.vscode/
+__pycache__/
+ferry_cli.egg-info/
+
+# Development artifacts
 result.json
 .venv
 .git
-/tmp/*
-__pycache__
-.make_creds.sh
 swagger.json
 config/swagger.json
+
+# Testing artifacts
+/tmp/*
+.make_creds.sh
 remove

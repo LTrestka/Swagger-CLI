@@ -45,6 +45,7 @@ class FerryCLI:
     # pylint: disable=too-many-instance-attributes
     def __init__(
         self: "FerryCLI",
+        base_url: Optional[str] = None,
         config_path: Optional[pathlib.Path] = None,
         authorizer: Auth = Auth(),
         print_help: bool = False,
@@ -53,6 +54,7 @@ class FerryCLI:
         Initializes the FerryCLI instance.
 
         Args:
+            base_url (Optional[str]): The base URL for the Ferry API, if that should not come from the file specified by config_path.
             config_path (Optional[pathlib.Path]): The path to the configuration file. If None,
                 a message will be printed indicating that a configuration file is required.
             authorizer (Auth): An instance of the Auth class used for authorization. Defaults to a dummy Auth instance.
@@ -90,7 +92,11 @@ class FerryCLI:
         self.config_path = config_path
         self.configs = self.__parse_config_file()
         self.authorizer = authorizer
-        self.base_url = self._sanitize_base_url(self.base_url)
+        self.base_url = (
+            self._sanitize_base_url(self.base_url)
+            if base_url is None
+            else self._sanitize_base_url(base_url)
+        )
         self.dev_url = self._sanitize_base_url(self.dev_url)
 
     def get_arg_parser(self: "FerryCLI") -> FerryParser:
@@ -615,7 +621,9 @@ def main() -> None:
     try:
         auth_args, other_args = get_auth_args()
         ferry_cli = FerryCLI(
-            config_path=config_path, authorizer=set_auth_from_args(auth_args)
+            config_path=config_path,
+            authorizer=set_auth_from_args(auth_args),
+            base_url=auth_args.server,
         )
         if auth_args.update or not os.path.exists(f"{CONFIG_DIR}/swagger.json"):
             if auth_args.debug_level != DebugLevel.QUIET:
