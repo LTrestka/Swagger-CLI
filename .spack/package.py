@@ -40,10 +40,11 @@ class FerryCli(PythonPackage):
 
     version("latest", branch="master")
     version("1.0.0", tag="1.0.0")
-    version("1.0.1", tag="1.0.1", preferred=True)
+    version("1.0.1", tag="1.0.1")
+    version("1.0.2", tag="1.0.2", preferred=True)
 
     depends_on("python@3.6.8:", type=("run"))
-    
+
     python_packages = [
         "certifi",
         "charset-normalizer",
@@ -51,32 +52,34 @@ class FerryCli(PythonPackage):
         "requests",
         "urllib3",
         "setuptools",
-        "validators"
+        "validators",
     ]
 
     def install(self, spec, prefix):
         install_tree(self.stage.source_path, prefix)
-        
-        pip = which('pip')
+
+        pip = which("pip")
         for package in self.python_packages:
-            pip('install', package, '--prefix', prefix)
-        
+            pip("install", package, "--prefix", prefix)
+
         # Update the wrapper script to support whichever python interpreter is being used
         wrapper_content = None
-        script_path = os.path.join(prefix, 'bin', 'ferry-cli')
-        with open(script_path, 'r') as f:
+        script_path = os.path.join(prefix, "bin", "ferry-cli")
+        with open(script_path, "r") as f:
             wrapper_content = f.read()
             f.close()
         if wrapper_content:
             print(wrapper_content)
-            wrapper_content = wrapper_content.replace("/usr/bin/python3", spec['python'].command.path)
-            with open(script_path, 'w') as f:
+            wrapper_content = wrapper_content.replace(
+                "/usr/bin/python3", spec["python"].command.path
+            )
+            with open(script_path, "w") as f:
                 f.write(wrapper_content)
                 f.close()
-                
+
         # Make the wrapper script executable
-        chmod = which('chmod')
-        chmod('+x', script_path)
+        chmod = which("chmod")
+        chmod("+x", script_path)
 
     def setup_environment(self, spack_env, run_env):
         run_env.prepend_path("PATH", self.prefix.bin)

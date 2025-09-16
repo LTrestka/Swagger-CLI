@@ -43,14 +43,46 @@ except ImportError:
 
 class FerryCLI:
     # pylint: disable=too-many-instance-attributes
-    def __init__(self: "FerryCLI", config_path: Optional[pathlib.Path]) -> None:
+    def __init__(
+        self: "FerryCLI",
+        base_url: Optional[str] = None,
+        config_path: Optional[pathlib.Path] = None,
+        authorizer: Auth = Auth(),
+        print_help: bool = False,
+    ) -> None:
+        """
+        Initializes the FerryCLI instance.
+
+        Args:
+            base_url (Optional[str]): The base URL for the Ferry API, if that should not come from the file specified by config_path.
+            config_path (Optional[pathlib.Path]): The path to the configuration file. If None,
+                a message will be printed indicating that a configuration file is required.
+            authorizer (Auth): An instance of the Auth class used for authorization. Defaults to a dummy Auth instance.
+            print_help (bool): If True, prints the help message for the CLI and does not run any setup of the FerryCLI class. Defaults to False.
+
+        Class Attributes:
+            base_url (str): The base URL for the Ferry API.
+            dev_url (str): The development URL for the Ferry API.
+            safeguards (SafeguardsDCS): An instance of SafeguardsDCS for managing safeguards.
+            endpoints (Dict[str, Any]): A dictionary to store API endpoints.
+            ferry_api (Optional[FerryAPI]): An instance of the FerryAPI class, initialized later.
+            parser (Optional[FerryParser]): An instance of the FerryParser class, initialized later.
+            config_path (pathlib.Path): The path to the configuration file.
+            configs (dict): Parsed configuration data from the configuration file.
+            authorizer (Auth): The authorizer instance used for API authentication.
+
+        Raises:
+            ValueError: If the configuration file does not have a base_url specified.
+        """
         self.base_url: str
         self.dev_url: str
         self.safeguards = SafeguardsDCS()
         self.endpoints: Dict[str, Any] = {}
-        self.authorizer: Optional["Auth"] = None
         self.ferry_api: Optional["FerryAPI"] = None
         self.parser: Optional["FerryParser"] = None
+        if print_help:
+            self.get_arg_parser().print_help()
+            return
         if config_path is None:
             print(
                 'A configuration file is required to run the Ferry CLI. Please run "ferry-cli" to generate one interactively if one does not already exist.'
@@ -59,7 +91,12 @@ class FerryCLI:
 
         self.config_path = config_path
         self.configs = self.__parse_config_file()
-        self.base_url = self._sanitize_base_url(self.base_url)
+        self.authorizer = authorizer
+        self.base_url = (
+            self._sanitize_base_url(self.base_url)
+            if base_url is None
+            else self._sanitize_base_url(base_url)
+        )
         self.dev_url = self._sanitize_base_url(self.dev_url)
 
     def get_arg_parser(self: "FerryCLI") -> FerryParser:
@@ -312,7 +349,10 @@ class FerryCLI:
 
         if not self.ferry_api:
             self.ferry_api = FerryAPI(
-                base_url=self.base_url, authorizer=self.authorizer, debug_level=debug_level, dryrun=dryrun  # type: ignore
+                base_url=self.base_url,
+                authorizer=self.authorizer,
+                debug_level=debug_level,
+                dryrun=dryrun,
             )
 
         if args.endpoint:
@@ -334,7 +374,7 @@ class FerryCLI:
                 workflow.init_parser()
                 workflow_params, _ = workflow.parser.parse_known_args(endpoint_args)
                 json_result = workflow.run(self.ferry_api, vars(workflow_params))  # type: ignore
-                if not dryrun:
+                if (not dryrun) and json_result:
                     self.handle_output(
                         json.dumps(json_result, indent=4), args.output, debug_level
                     )
@@ -534,7 +574,7 @@ def handle_no_args(_config_path: Optional[pathlib.Path]) -> bool:
     write_config_file = input(write_configfile_prompt)
 
     if write_config_file != "Y":
-        FerryCLI(config_path=None).get_arg_parser().print_help()
+        FerryCLI(print_help=True)
         print("Exiting without writing configuration file.")
         sys.exit(0)
 
@@ -565,6 +605,7 @@ def handle_arg_capitalization(
     return arguments
 
 
+# pylint: disable=too-many-branches
 def main() -> None:
     _config_path = config.get_configfile_path()
     if len(sys.argv) == 1:
@@ -593,17 +634,17 @@ def main() -> None:
             "arguments to generate a new configuration file interactively."
         )
 
-    ferry_cli = FerryCLI(config_path=config_path)
     if _help_called_flag:
-        ferry_cli.get_arg_parser().print_help()
+        FerryCLI(print_help=True)
         sys.exit(0)
 
     try:
         auth_args, other_args = get_auth_args()
-        if not other_args:
-            ferry_cli.get_arg_parser().print_help()
-            sys.exit(0)
-        ferry_cli.authorizer = set_auth_from_args(auth_args)
+        ferry_cli = FerryCLI(
+            config_path=config_path,
+            authorizer=set_auth_from_args(auth_args),
+            base_url=auth_args.server,
+        )
         if auth_args.update or not os.path.exists(f"{CONFIG_DIR}/swagger.json"):
             if auth_args.debug_level != DebugLevel.QUIET:
                 print("Fetching latest swagger file...")
@@ -615,6 +656,14 @@ def main() -> None:
             ferry_cli.ferry_api.get_latest_swagger_file()
             if auth_args.debug_level != DebugLevel.QUIET:
                 print("Successfully stored latest swagger file.\n")
+            if not other_args:
+                if auth_args.debug_level != DebugLevel.QUIET:
+                    print("No more arguments provided. Exiting.")
+                sys.exit(0)
+
+        if not other_args:
+            ferry_cli.get_arg_parser().print_help()
+            sys.exit(1)
 
         ferry_cli.endpoints = ferry_cli.generate_endpoints()
         other_args = handle_arg_capitalization(ferry_cli.endpoints, other_args)

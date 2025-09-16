@@ -91,7 +91,9 @@ class Auth(ABC):
     """This is the base class on which all Auth classes should build"""
 
     def __call__(self: "Auth", s: requests.Session) -> requests.Session:
-        return s
+        raise NotImplementedError(
+            "Must use a subclass of Auth with __call__ method defined"
+        )
 
 
 class AuthToken(Auth):
@@ -210,6 +212,11 @@ def get_auth_parser() -> "FerryParser":
         nargs=0,
         help="Get Ferry CLI support emails",
         action=request_project_info("email"),
+    )
+    auth_parser.add_argument(
+        "-s",
+        "--server",
+        help="Server URL to use instead of configuration file api.base_url value",
     )
     auth_parser.add_argument(
         "--version",
