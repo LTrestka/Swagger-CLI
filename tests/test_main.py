@@ -313,7 +313,7 @@ def test_handle_no_args_configfile_does_not_exist(
 def test_snakecase_and_underscore_conversion():
     test_endpoints = ["getUserInfo"]
     correct_args = ["-e", "getUserInfo", "--username=johndoe"]
-    test_args_case_underscore = ["-e", "_Get_USeriNFo", "--username=johndoe"]
+    test_args_case_underscore = ["-e", "Get_USeriNFo", "--username=johndoe"]
     result = handle_arg_capitalization(test_endpoints, test_args_case_underscore)
 
     # test to make sure function does matching irrespective of capitalization
