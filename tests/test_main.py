@@ -15,12 +15,14 @@ from ferry_cli.__main__ import (
 import ferry_cli.__main__ as _main
 import ferry_cli.config.config as _config
 
+
 @pytest.fixture
 def inject_fake_stdin(monkeypatch):
     def inner(fake_input):
         monkeypatch.setattr("sys.stdin", io.StringIO(fake_input))
 
     return inner
+
 
 @pytest.fixture
 def mock_write_config_file_with_user_values(monkeypatch):
@@ -33,6 +35,7 @@ def mock_write_config_file_with_user_values(monkeypatch):
         _func,
     )
 
+
 @pytest.fixture
 def write_and_set_fake_config_file(monkeypatch, tmp_path):
     # Fake config file
@@ -44,9 +47,11 @@ def write_and_set_fake_config_file(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(p.absolute()))
     return config_file
 
+
 @pytest.fixture
 def configfile_doesnt_exist(monkeypatch):
     monkeypatch.setattr(_config, "get_configfile_path", lambda: None)
+
 
 @pytest.mark.unit
 def test_sanitize_base_url():
@@ -57,6 +62,7 @@ def test_sanitize_base_url():
 
     complex_case = "http://hostname.domain:1234/apiEndpoint?key1=val1"
     assert FerryCLI._sanitize_base_url(complex_case) == complex_case
+
 
 @pytest.mark.unit
 def test_handle_show_configfile_configfile_exists(
@@ -79,6 +85,7 @@ def test_handle_show_configfile_configfile_exists(
         captured = capsys.readouterr()
         assert captured.out.strip() == case.expected_stdout_substr
 
+
 @pytest.mark.unit
 def test_handle_show_configfile_configfile_does_not_exist(
     capsys, monkeypatch, tmp_path, mock_write_config_file_with_user_values
@@ -99,6 +106,7 @@ def test_handle_show_configfile_configfile_does_not_exist(
     )
     assert "Mocked write_config_file" in captured.out
 
+
 @pytest.mark.unit
 def test_handle_show_configfile_envs_not_found(
     capsys,
@@ -115,6 +123,7 @@ def test_handle_show_configfile_envs_not_found(
         in captured.out
     )
     assert "Mocked write_config_file" in captured.out
+
 
 @pytest.mark.parametrize(
     "args, expected_out_substr",
@@ -137,7 +146,6 @@ def test_handle_show_configfile_envs_not_found(
         ),  # If we pass --show-config-file with other args, --show-config-file should print out the config file
     ],
 )
-
 @pytest.mark.unit
 def test_show_configfile_flag_with_other_args(
     tmp_path, monkeypatch, write_and_set_fake_config_file, args, expected_out_substr
@@ -154,6 +162,7 @@ def test_show_configfile_flag_with_other_args(
     except SystemExit:
         pass
     assert expected_out_substr in str(proc.stdout)
+
 
 @pytest.mark.unit
 def test_get_config_info_from_user(monkeypatch, capsys):
@@ -175,6 +184,7 @@ def test_get_config_info_from_user(monkeypatch, capsys):
     )
     assert "\nMultiple failures in specifying base URL, exiting..." in captured.out
 
+
 @pytest.mark.unit
 def test_help_called():
     # Test when "--help" is present in the arguments
@@ -188,6 +198,7 @@ def test_help_called():
     # Test when neither "--help" nor "-h" is present in the arguments
     args = ["command", "arg1", "arg2"]
     assert help_called(args) == False
+
 
 @pytest.mark.parametrize(
     "expected_stdout_before_prompt, user_input, expected_stdout_after_prompt",
@@ -217,7 +228,6 @@ def test_help_called():
         ),
     ],
 )
-
 @pytest.mark.unit
 def test_handle_no_args_configfile_exists(
     monkeypatch,
@@ -243,6 +253,7 @@ def test_handle_no_args_configfile_exists(
 
     assert pytest_wrapped_e.type == SystemExit
     assert pytest_wrapped_e.value.code == 0
+
 
 @pytest.mark.parametrize(
     "expected_stdout_before_prompt, user_input, expected_stdout_after_prompt",
@@ -313,7 +324,8 @@ def test_snakecase_and_underscore_conversion():
 
     # test that non endpoint arguments are untouched
     assert handle_arg_capitalization(test_endpoints, ["-z"]) == ["-z"]
-    
+
+
 @pytest.mark.parametrize(
     "base_url, expected_base_url",
     [
@@ -324,7 +336,6 @@ def test_snakecase_and_underscore_conversion():
         ),  # Get base_url from override
     ],
 )
-
 @pytest.mark.unit
 def test_override_base_url_FerryCLI(tmp_path, base_url, expected_base_url):
     # Set up fake config
@@ -340,6 +351,7 @@ dev_url = https://example.com:12345/
     cli = FerryCLI(config_path=fake_config, base_url=base_url)
     assert cli.base_url == expected_base_url
 
+
 @pytest.mark.parametrize(
     "args, expected_out_url",
     [
@@ -350,7 +362,6 @@ dev_url = https://example.com:12345/
         ),  # Get base_url from override
     ],
 )
-
 @pytest.mark.test
 def test_server_flag_main(tmp_path, monkeypatch, args, expected_out_url):
     # Run ferry-cli with overridden base_url in dryrun mode to endpoint ping. Then see if we see the correct server in output

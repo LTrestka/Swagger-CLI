@@ -3,6 +3,7 @@ import configparser
 import json
 import os
 import pathlib
+import re
 import sys
 import textwrap
 from typing import Any, Dict, Optional, List, Type
@@ -437,28 +438,51 @@ class FerryCLI:
             error_raised(Exception, f"Error: {e}")
 
     @staticmethod
+    def _sanitize_path(raw_path: str) -> str:
+        """
+        Normalizes a URL path:
+        - Collapses multiple internal slashes
+        - Ensures exactly one leading slash
+        - Ensures exactly one trailing slash
+
+        Examples:
+            "path//to///resource"   → "/path/to/resource/"
+            "/path/to/resource"     → "/path/to/resource/"
+            "///ping"               → "/ping/"
+            "/ping///"              → "/ping/"
+            "/pingus/aa//e/"        → "/pingus/aa/e/"
+        """
+        # Collapse multiple slashes
+        cleaned = re.sub(r"/+", "/", raw_path.strip())
+        # Handle special case: empty path
+        if not cleaned:
+            return "/"
+        return "/" + cleaned.strip("/") + "/"
+
+    @staticmethod
     def _sanitize_base_url(raw_base_url: str) -> str:
-        """This function makes sure we have a trailing forward-slash on the base_url before it's passed
-        to any other functions
+        """
+        Ensures that the base URL:
+        - Has a normalized path (leading + trailing slash, collapsed slashes)
+        - Leaves query and fragment unchanged
 
-        That is, "http://hostname.domain:port" --> "http://hostname.domain:port/" but
-                 "http://hostname.domain:port/" --> "http://hostname.domain:port/" and
-                 "http://hostname.domain:port/path?querykey1=value1&querykey2=value2" --> "http://hostname.domain:port/path?querykey1=value1&querykey2=value2" and
-
-        So if there is a non-empty path, parameters, query, or fragment to our URL as defined by RFC 1808, we leave the URL alone
+        Will only modify the URL if:
+        - The query and fragment are empty, OR
+        - The path is non-empty and needs sanitization
         """
         _parts = urlsplit(raw_base_url)
-        parts = (
-            SplitResult(
-                scheme=_parts.scheme,
-                netloc=_parts.netloc,
-                path="/",
-                query=_parts.query,
-                fragment=_parts.fragment,
-            )
-            if (_parts.path == "" and _parts.query == "" and _parts.fragment == "")
-            else _parts
+
+        # Always sanitize the path
+        sanitized_path = FerryCLI._sanitize_path(_parts.path)
+
+        parts = SplitResult(
+            scheme=_parts.scheme,
+            netloc=_parts.netloc,
+            path=sanitized_path,
+            query=_parts.query,
+            fragment=_parts.fragment,
         )
+
         return urlunsplit(parts)
 
     def __parse_config_file(self: "FerryCLI") -> configparser.ConfigParser:
@@ -589,19 +613,19 @@ def handle_arg_capitalization(
     endpoints: Dict[str, Any], arguments: List[str]
 ) -> List[str]:
     # check to see if the arguments supplied are for an endpoint. IE a "-e" was supplied
-    for i in range(len(arguments)):
-        if arguments[i].lower() in {"-e","--endpoint", "-ep", "--endpoint_params"} and len(arguments) > i + 1:
-            # convert snake_case_endpoint arg to lowerCamelCase
-            arguments[i+1] = "".join([part.capitalize() for part in arguments[i+1].split("_")])
-            if len(arguments[i+1]) > 0:
-                arguments[i+1] = arguments[i+1][:1].lower() + arguments[i+1][1:]
-            
-            # handle case where user supplies endpoint with improper capitalization
-            if arguments[i+1] not in endpoints:
-                for endpoint in endpoints:
-                    if arguments[i+1].lower() == endpoint.lower():
-                        arguments[i+1] = endpoint
-            break
+    for idx, arg in enumerate(arguments):
+        if arg.lower() in {"-e", "--endpoint", "-ep", "--endpoint_params"} and (
+            idx + 1
+        ) < len(arguments):
+            # Convert to lowerCamelCase (from snake_case or kebab-case)
+            raw_arg = arguments[idx + 1]
+            ep = "".join(part.capitalize() for part in re.split(r"[_-]", raw_arg[1:]))
+            ep = ep[0].lower() + ep[1:] if ep else ""
+
+            # Match endpoint case-insensitively and replace original argument if found
+            matched_ep = next((e for e in endpoints if e.lower() == ep.lower()), None)
+            if matched_ep:
+                arguments[idx + 1] = matched_ep
     return arguments
 
 
