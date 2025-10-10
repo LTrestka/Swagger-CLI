@@ -3,6 +3,7 @@ import configparser
 import json
 import os
 import pathlib
+import re
 import sys
 import textwrap
 from typing import Any, Dict, Optional, List, Type
@@ -226,6 +227,7 @@ class FerryCLI:
 
     def get_endpoint_params_action(self):  # type: ignore
         safeguards = self.safeguards
+        ferrycli = self
         ferrycli_get_endpoint_params = self.get_endpoint_params
 
         class _GetEndpointParams(argparse.Action):
@@ -233,8 +235,9 @@ class FerryCLI:
                 self: "_GetEndpointParams", parser, args, values, option_string=None
             ) -> None:
                 # Prevent DCS from running this endpoint if necessary, and print proper steps to take instead.
-                safeguards.verify(values)
-                ferrycli_get_endpoint_params(values)
+                ep = normalize_endpoint(ferrycli.endpoints, values)
+                safeguards.verify(ep)
+                ferrycli_get_endpoint_params(ep)
                 sys.exit(0)
 
         return _GetEndpointParams
@@ -357,9 +360,10 @@ class FerryCLI:
 
         if args.endpoint:
             # Prevent DCS from running this endpoint if necessary, and print proper steps to take instead.
-            self.safeguards.verify(args.endpoint)
+            ep = normalize_endpoint(self.endpoints, args.endpoint)
+            self.safeguards.verify(ep)
             try:
-                json_result = self.execute_endpoint(args.endpoint, endpoint_args)
+                json_result = self.execute_endpoint(ep, endpoint_args)
             except Exception as e:
                 raise Exception(f"{e}")
             if not dryrun:
@@ -437,29 +441,45 @@ class FerryCLI:
             error_raised(Exception, f"Error: {e}")
 
     @staticmethod
-    def _sanitize_base_url(raw_base_url: str) -> str:
-        """This function makes sure we have a trailing forward-slash on the base_url before it's passed
-        to any other functions
-
-        That is, "http://hostname.domain:port" --> "http://hostname.domain:port/" but
-                 "http://hostname.domain:port/" --> "http://hostname.domain:port/" and
-                 "http://hostname.domain:port/path?querykey1=value1&querykey2=value2" --> "http://hostname.domain:port/path?querykey1=value1&querykey2=value2" and
-
-        So if there is a non-empty path, parameters, query, or fragment to our URL as defined by RFC 1808, we leave the URL alone
+    def _sanitize_path(raw_path: str) -> str:
         """
-        _parts = urlsplit(raw_base_url)
-        parts = (
-            SplitResult(
-                scheme=_parts.scheme,
-                netloc=_parts.netloc,
-                path="/",
-                query=_parts.query,
-                fragment=_parts.fragment,
-            )
-            if (_parts.path == "" and _parts.query == "" and _parts.fragment == "")
-            else _parts
+        Normalizes a URL path:
+        - Collapses multiple internal slashes
+        - Ensures exactly one leading slash
+        - Ensures exactly one trailing slash
+        """
+        cleaned = re.sub(r"/+", "/", raw_path.strip())
+        return "/" + cleaned.strip("/") + "/" if cleaned else "/"
+
+    @staticmethod
+    def _sanitize_base_url(raw_base_url: str) -> str:
+        """
+        Ensures the base URL has a trailing slash **only if**:
+        - It does not already have one
+        - It does not include query or fragment parts
+
+        Leaves URLs with query or fragment untouched.
+        """
+        parts = urlsplit(raw_base_url)
+
+        # If query or fragment is present, return as-is
+        if parts.query or parts.fragment:
+            return raw_base_url
+
+        # Normalize the path (ensure trailing slash)
+        path = parts.path or "/"
+        if not path.endswith("/"):
+            path += "/"
+
+        # Collapse multiple slashes in path
+        path = re.sub(r"/+", "/", path)
+
+        # Rebuild the URL with sanitized path
+        sanitized_parts = SplitResult(
+            scheme=parts.scheme, netloc=parts.netloc, path=path, query="", fragment=""
         )
-        return urlunsplit(parts)
+
+        return urlunsplit(sanitized_parts)
 
     def __parse_config_file(self: "FerryCLI") -> configparser.ConfigParser:
         configs = configparser.ConfigParser()
@@ -583,6 +603,19 @@ def handle_no_args(_config_path: Optional[pathlib.Path]) -> bool:
     )
     write_config_file_with_user_values()
     sys.exit(0)
+
+
+def normalize_endpoint(endpoints: Dict[str, Any], raw: str) -> str:
+    # Extract and preserve a single leading underscore, if any
+    leading_underscore = "_" if raw.startswith("_") else ""
+    # Remove all leading underscores before processing
+    stripped = raw.lstrip("_")
+    # Convert to lowerCamelCase from snake_case or kebab-case
+    parts = re.split(r"[_-]+", stripped)
+    camel = parts[0].lower() + "".join(part.capitalize() for part in parts[1:])
+    normalized = leading_underscore + camel
+    # Match endpoint case-insensitively and replace original argument if found
+    return next((ep for ep in endpoints if ep.lower() == normalized.lower()), raw)
 
 
 # pylint: disable=too-many-branches

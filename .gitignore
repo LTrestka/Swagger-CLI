@@ -15,3 +15,4 @@ config/swagger.json
 /tmp/*
 .make_creds.sh
 remove
+.vscode

@@ -10,6 +10,7 @@ from ferry_cli.__main__ import (
     handle_show_configfile,
     get_config_info_from_user,
     help_called,
+    normalize_endpoint,
 )
 import ferry_cli.__main__ as _main
 import ferry_cli.config.config as _config
@@ -306,6 +307,31 @@ def test_handle_no_args_configfile_does_not_exist(
 
     assert pytest_wrapped_e.type == SystemExit
     assert pytest_wrapped_e.value.code == 0
+
+
+@pytest.mark.unit
+def test_snakecase_and_underscore_conversion():
+    test_endpoints = {"getUserInfo": object()}
+
+    # test to make sure function does matching irrespective of capitalization
+    assert normalize_endpoint(test_endpoints, "Get_USeriNFo") == "getUserInfo"
+
+    # test to make sure function never stops working for correct syntax
+    assert normalize_endpoint(test_endpoints, "getUserInfo") == "getUserInfo"
+
+    # test that non-endpoint values are left untouched when no match is found
+    assert (
+        normalize_endpoint(test_endpoints, "SomeOtherEndpoint") == "SomeOtherEndpoint"
+    )
+
+
+@pytest.mark.unit
+def test_leading_underscore_preserved():
+    test_endpoints = {"_internalEndpoint": object()}
+
+    assert (
+        normalize_endpoint(test_endpoints, "_Internal_endpoint") == "_internalEndpoint"
+    )
 
 
 @pytest.mark.parametrize(
