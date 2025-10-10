@@ -227,6 +227,7 @@ class FerryCLI:
 
     def get_endpoint_params_action(self):  # type: ignore
         safeguards = self.safeguards
+        ferrycli = self
         ferrycli_get_endpoint_params = self.get_endpoint_params
 
         class _GetEndpointParams(argparse.Action):
@@ -234,8 +235,9 @@ class FerryCLI:
                 self: "_GetEndpointParams", parser, args, values, option_string=None
             ) -> None:
                 # Prevent DCS from running this endpoint if necessary, and print proper steps to take instead.
-                safeguards.verify(values)
-                ferrycli_get_endpoint_params(values)
+                ep = normalize_endpoint(ferrycli.endpoints, values)
+                safeguards.verify(ep)
+                ferrycli_get_endpoint_params(ep)
                 sys.exit(0)
 
         return _GetEndpointParams
@@ -358,9 +360,10 @@ class FerryCLI:
 
         if args.endpoint:
             # Prevent DCS from running this endpoint if necessary, and print proper steps to take instead.
-            self.safeguards.verify(args.endpoint)
+            ep = normalize_endpoint(self.endpoints, args.endpoint)
+            self.safeguards.verify(ep)
             try:
-                json_result = self.execute_endpoint(args.endpoint, endpoint_args)
+                json_result = self.execute_endpoint(ep, endpoint_args)
             except Exception as e:
                 raise Exception(f"{e}")
             if not dryrun:
@@ -602,34 +605,17 @@ def handle_no_args(_config_path: Optional[pathlib.Path]) -> bool:
     sys.exit(0)
 
 
-def handle_arg_capitalization(
-    endpoints: Dict[str, Any], arguments: List[str]
-) -> List[str]:
-    for idx, arg in enumerate(arguments):
-        if arg.lower() in {"-e", "--endpoint", "-ep", "--endpoint_params"} and (
-            idx + 1 < len(arguments)
-        ):
-            raw_arg = arguments[idx + 1]
-
-            # Extract and preserve a single leading underscore, if any
-            leading_underscore = "_" if raw_arg.startswith("_") else ""
-
-            # Remove all leading underscores before processing
-            stripped = raw_arg.lstrip("_")
-
-            # Convert to lowerCamelCase from snake_case or kebab-case
-            parts = re.split(r"[_-]+", stripped)
-            if not parts:
-                continue
-
-            camel = parts[0].lower() + "".join(part.capitalize() for part in parts[1:])
-            ep = leading_underscore + camel
-
-            # Match endpoint case-insensitively and replace original argument if found
-            matched_ep = next((e for e in endpoints if e.lower() == ep.lower()), None)
-            if matched_ep:
-                arguments[idx + 1] = matched_ep
-    return arguments
+def normalize_endpoint(endpoints: Dict[str, Any], raw: str) -> str:
+    # Extract and preserve a single leading underscore, if any
+    leading_underscore = "_" if raw.startswith("_") else ""
+    # Remove all leading underscores before processing
+    stripped = raw.lstrip("_")
+    # Convert to lowerCamelCase from snake_case or kebab-case
+    parts = re.split(r"[_-]+", stripped)
+    camel = parts[0].lower() + "".join(part.capitalize() for part in parts[1:])
+    normalized = leading_underscore + camel
+    # Match endpoint case-insensitively and replace original argument if found
+    return next((ep for ep in endpoints if ep.lower() == normalized.lower()), raw)
 
 
 # pylint: disable=too-many-branches
@@ -693,7 +679,6 @@ def main() -> None:
             sys.exit(1)
 
         ferry_cli.endpoints = ferry_cli.generate_endpoints()
-        other_args = handle_arg_capitalization(ferry_cli.endpoints, other_args)
         ferry_cli.run(
             auth_args.debug_level,
             auth_args.dryrun,
