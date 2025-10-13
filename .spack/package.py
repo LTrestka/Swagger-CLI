@@ -41,7 +41,8 @@ class FerryCli(PythonPackage):
     version("latest", branch="master")
     version("1.0.0", tag="1.0.0")
     version("1.0.1", tag="1.0.1")
-    version("1.0.2", tag="1.0.2", preferred=True)
+    version("1.0.2", tag="1.0.2")
+    version("1.1.0", tag="1.1.0", preferred=True)
 
     depends_on("python@3.6.8:", type=("run"))
 
