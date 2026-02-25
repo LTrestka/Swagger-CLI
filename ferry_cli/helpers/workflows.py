@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import json
 from typing import Any, Dict, List
 
 try:
@@ -42,7 +43,7 @@ class Workflow(ABC):
         if not response:
             print("Failed to verify output")
             raise RuntimeError("Empty response from FERRY")
-        if response.get("ferry_status", "") != "success":
+        if response.get("ferry_status", "") != "success" and "response" not in response:
             print("Failed to verify output")
             print(f"{response}")
             if "ferry_error" in response:
@@ -50,4 +51,11 @@ class Workflow(ABC):
                     "FERRY returned error(s): " + ", ".join(response["ferry_error"])
                 )
             raise RuntimeError("FERRY did not return a successful response")
-        return response["ferry_output"]
+        if "ferry_output" in response:
+            return response["ferry_output"]
+        elif "response" in response:
+            return response["response"]
+        else:
+            print("Failed to verify output")
+            print(f"{response}")
+            raise RuntimeError("FERRY response did not contain expected output")

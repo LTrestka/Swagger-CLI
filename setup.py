@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from setuptools import setup, find_packages
 from ferry_cli.version import print_version, get_summary
 
@@ -31,6 +32,7 @@ setup(
         "helpers.supported_workflows": [
             "ferry_cli/helpers/supported_workflows/CloneResource.py",
             "ferry_cli/helpers/supported_workflows/GetFilteredGroupInfo.py",
+            "ferry_cli/helpers/supported_workflows/GetDriveConfigurations.py",
         ],
         "safeguards": ["ferry_cli/safeguards/dcs.py"],
         "config": [

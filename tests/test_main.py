@@ -1,8 +1,10 @@
 from collections import namedtuple
 import io
+import json
 import os
 import subprocess
 import sys
+import time
 import pytest
 
 from ferry_cli.__main__ import (
@@ -14,6 +16,43 @@ from ferry_cli.__main__ import (
 )
 import ferry_cli.__main__ as _main
 import ferry_cli.config.config as _config
+from ferry_cli.helpers.customs import FerryParser
+
+
+class DummyTokenAuthorizer:
+    def __init__(self):
+        self.token_string = ""
+
+    def __call__(self, session):
+        return session
+
+
+def write_auth_config(
+    tmp_path,
+    token_path,
+    authentication_file,
+    authenticate_url,
+    token_format="json",
+):
+    config_text = f"""
+[api]
+base_url = https://example.com:12345/
+dev_url = https://example.com:12345/
+
+[authorization]
+enabled = True
+auth_method = "token"
+authentication_file = "{authentication_file}"
+authenticate_url = "{authenticate_url}"
+
+[token-auth]
+token_path = "{token_path}"
+token_format = "{token_format}"
+token_header = "Bearer {{token}}"
+"""
+    config_file = tmp_path / "config.ini"
+    config_file.write_text(config_text)
+    return config_file
 
 
 @pytest.fixture
@@ -334,6 +373,83 @@ def test_leading_underscore_preserved():
     )
 
 
+@pytest.mark.unit
+def test_resolve_endpoint_maps_concrete_path_to_template(tmp_path):
+    config_path = tmp_path / "config.ini"
+    config_path.write_text(
+        """
+[api]
+base_url = https://example.com:12345/
+dev_url = https://example.com:12345/
+"""
+    )
+    cli = FerryCLI(config_path=config_path, authorizer=DummyTokenAuthorizer())
+    cli.endpoints = {"tasks/{taskID}": object()}
+
+    task_id = "39406b65-c133-4bb9-ab49-8a0f39ea8cf9"
+    resolved_endpoint, path_params = cli.resolve_endpoint(f"tasks/{task_id}")
+
+    assert resolved_endpoint == "tasks/{taskID}"
+    assert path_params == {"taskID": task_id}
+
+
+@pytest.mark.unit
+def test_run_accepts_concrete_path_for_templated_endpoint(tmp_path):
+    config_path = tmp_path / "config.ini"
+    config_path.write_text(
+        """
+[api]
+base_url = https://example.com:12345/
+dev_url = https://example.com:12345/
+"""
+    )
+    cli = FerryCLI(config_path=config_path, authorizer=DummyTokenAuthorizer())
+
+    endpoint_parser = FerryParser.create_subparser(
+        "tasks/{taskID}",
+        description="Get a task",
+        method="GET",
+    )
+    endpoint_parser.set_arguments(
+        [
+            {
+                "name": "taskID",
+                "description": "Task ID",
+                "type": "string",
+                "required": True,
+            },
+            {
+                "name": "view",
+                "description": "Task view",
+                "type": "string",
+                "required": False,
+            },
+        ]
+    )
+    cli.endpoints = {"tasks/{taskID}": endpoint_parser}
+
+    seen = {}
+
+    class FakeAPI:
+        def call_endpoint(self, endpoint, params):
+            seen["endpoint"] = endpoint
+            seen["params"] = params
+            return {"ferry_status": "success"}
+
+    cli.ferry_api = FakeAPI()
+
+    task_id = "39406b65-c133-4bb9-ab49-8a0f39ea8cf9"
+    cli.run(
+        debug_level=_main.DebugLevel.QUIET,
+        dryrun=False,
+        extra_args=["-e", f"tasks/{task_id}", "--view", "summary"],
+    )
+
+    assert seen["endpoint"] == "tasks/{taskID}"
+    assert seen["params"]["taskID"] == task_id
+    assert seen["params"]["view"] == "summary"
+
+
 @pytest.mark.parametrize(
     "base_url, expected_base_url",
     [
@@ -399,3 +515,352 @@ dev_url = https://example.com:12345/
     assert f"Would call endpoint: {expected_out_url}ping with params" in str(
         proc.stdout
     )
+
+
+@pytest.mark.unit
+def test_build_ferry_api_supports_legacy_constructor(tmp_path, monkeypatch):
+    fake_config_text = """
+[api]
+base_url = https://example.com:12345/
+dev_url = https://example.com:12345/
+
+"""
+    config_path = tmp_path / "config.ini"
+    config_path.write_text(fake_config_text)
+
+    seen_args = {}
+
+    class LegacyFerryAPI:
+        def __init__(
+            self,
+            base_url,
+            authorizer,
+            debug_level=_main.DebugLevel.NORMAL,
+            dryrun=False,
+        ):
+            seen_args["base_url"] = base_url
+            seen_args["authorizer"] = authorizer
+            seen_args["debug_level"] = debug_level
+            seen_args["dryrun"] = dryrun
+
+    monkeypatch.setattr(_main, "FerryAPI", LegacyFerryAPI)
+
+    cli = FerryCLI(config_path=config_path, authorizer=DummyTokenAuthorizer())
+    api = cli._build_ferry_api(debug_level=_main.DebugLevel.DEBUG, dryrun=True)
+
+    assert isinstance(api, LegacyFerryAPI)
+    assert seen_args["base_url"] == "https://example.com:12345/"
+    assert seen_args["authorizer"] is cli.authorizer
+    assert seen_args["debug_level"] == _main.DebugLevel.DEBUG
+    assert seen_args["dryrun"] is True
+
+
+@pytest.mark.unit
+def test_build_ferry_api_passes_insecure_when_supported(tmp_path, monkeypatch):
+    fake_config_text = """
+[api]
+base_url = https://example.com:12345/
+dev_url = https://example.com:12345/
+
+"""
+    config_path = tmp_path / "config.ini"
+    config_path.write_text(fake_config_text)
+
+    seen_args = {}
+
+    class CurrentFerryAPI:
+        def __init__(
+            self,
+            base_url,
+            authorizer,
+            debug_level=_main.DebugLevel.NORMAL,
+            dryrun=False,
+            insecure=False,
+        ):
+            seen_args["base_url"] = base_url
+            seen_args["authorizer"] = authorizer
+            seen_args["debug_level"] = debug_level
+            seen_args["dryrun"] = dryrun
+            seen_args["insecure"] = insecure
+
+    monkeypatch.setattr(_main, "FerryAPI", CurrentFerryAPI)
+
+    cli = FerryCLI(
+        config_path=config_path,
+        authorizer=DummyTokenAuthorizer(),
+        insecure=True,
+    )
+    api = cli._build_ferry_api(debug_level=_main.DebugLevel.DEBUG, dryrun=True)
+
+    assert isinstance(api, CurrentFerryAPI)
+    assert seen_args["base_url"] == "https://example.com:12345/"
+    assert seen_args["authorizer"] is cli.authorizer
+    assert seen_args["debug_level"] == _main.DebugLevel.DEBUG
+    assert seen_args["dryrun"] is True
+    assert seen_args["insecure"] is True
+
+
+@pytest.mark.unit
+def test_get_authorization_header_uses_existing_valid_token(tmp_path):
+    token_path = tmp_path / "token.json"
+    token_path.write_text(
+        json.dumps(
+            {
+                "access_token": "existing-token",
+                "tokenExpiresAt": int(time.time()) + 3600,
+            }
+        )
+    )
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text(json.dumps({"username": "user", "password": "pass"}))
+    config_path = write_auth_config(
+        tmp_path, token_path, auth_file, "https://example.com/api/auth/login"
+    )
+
+    cli = FerryCLI(config_path=config_path, authorizer=DummyTokenAuthorizer())
+    auth_header = cli._get_authorization_header()
+
+    assert auth_header == {"Authorization": "Bearer existing-token"}
+    assert cli.authorizer.token_string == "existing-token"
+
+
+@pytest.mark.unit
+def test_get_authorization_header_refreshes_expired_token(tmp_path, monkeypatch):
+    token_path = tmp_path / "token.json"
+    token_path.write_text(
+        json.dumps(
+            {
+                "access_token": "expired-token",
+                "tokenExpiresAt": int(time.time()) - 60,
+            }
+        )
+    )
+    auth_file = tmp_path / "auth.json"
+    auth_payload = {"username": "user", "password": "pass"}
+    auth_file.write_text(json.dumps(auth_payload))
+    auth_url = "https://example.com/api/auth/login"
+    config_path = write_auth_config(tmp_path, token_path, auth_file, auth_url)
+
+    refreshed_token_data = {
+        "access_token": "fresh-token",
+        "tokenExpiresAt": int(time.time()) + 3600,
+    }
+
+    called = {}
+
+    class FakeResponse:
+        ok = True
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return refreshed_token_data
+
+    def fake_post(url, json, headers, verify, timeout):
+        called["url"] = url
+        called["json"] = json
+        called["headers"] = headers
+        called["verify"] = verify
+        called["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(_main.requests, "post", fake_post)
+
+    cli = FerryCLI(config_path=config_path, authorizer=DummyTokenAuthorizer())
+    auth_header = cli._get_authorization_header()
+
+    assert called["url"] == auth_url
+    assert called["json"] == auth_payload
+    assert called["verify"] is True
+    assert auth_header == {"Authorization": "Bearer fresh-token"}
+    assert cli.authorizer.token_string == "fresh-token"
+
+    persisted_token_data = json.loads(token_path.read_text())
+    assert persisted_token_data["access_token"] == "fresh-token"
+
+
+@pytest.mark.unit
+def test_get_authorization_header_expired_token_without_refresh_config_raises(tmp_path):
+    token_path = tmp_path / "token.json"
+    token_path.write_text(
+        json.dumps(
+            {
+                "access_token": "expired-token",
+                "tokenExpiresAt": int(time.time()) - 60,
+            }
+        )
+    )
+
+    config_text = f"""
+[api]
+base_url = https://example.com:12345/
+dev_url = https://example.com:12345/
+
+[authorization]
+enabled = True
+auth_method = "token"
+
+[token-auth]
+token_path = "{token_path}"
+token_format = "json"
+"""
+    config_path = tmp_path / "config.ini"
+    config_path.write_text(config_text)
+
+    cli = FerryCLI(config_path=config_path, authorizer=DummyTokenAuthorizer())
+
+    with pytest.raises(RuntimeError) as exc:
+        cli._get_authorization_header()
+
+    assert "authorization.authentication_file" in str(exc.value)
+
+
+@pytest.mark.unit
+def test_generate_endpoints_openapi3_resolves_parameter_and_requestbody_refs(
+    tmp_path, monkeypatch
+):
+    swagger = {
+        "openapi": "3.0.0",
+        "paths": {
+            "/auth/login": {
+                "parameters": [{"$ref": "#/components/parameters/tenant"}],
+                "post": {
+                    "summary": "Login request",
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/LoginRequest"}
+                            }
+                        },
+                    },
+                },
+            }
+        },
+        "components": {
+            "parameters": {
+                "tenant": {
+                    "name": "tenant",
+                    "in": "query",
+                    "description": "Tenant name",
+                    "required": True,
+                    "schema": {"type": "string"},
+                }
+            },
+            "schemas": {
+                "LoginRequest": {
+                    "type": "object",
+                    "required": ["username"],
+                    "properties": {
+                        "username": {
+                            "type": "string",
+                            "description": "Username for authentication",
+                        },
+                        "password": {"type": "string"},
+                    },
+                }
+            },
+        },
+    }
+    (tmp_path / "swagger.json").write_text(json.dumps(swagger))
+
+    config_path = tmp_path / "config.ini"
+    config_path.write_text(
+        """
+[api]
+base_url = https://example.com:12345/
+dev_url = https://example.com:12345/
+"""
+    )
+
+    monkeypatch.setattr(_main, "CONFIG_DIR", str(tmp_path))
+    cli = FerryCLI(config_path=config_path, authorizer=DummyTokenAuthorizer())
+    endpoints = cli.generate_endpoints()
+
+    parser = endpoints["auth/login"]
+    options = {
+        action.dest: action for action in parser._actions if action.dest != "help"
+    }
+
+    assert "tenant" in options
+    assert "username" in options
+    assert "password" in options
+    assert options["tenant"].required is True
+    assert options["username"].required is True
+    assert options["password"].required is False
+    assert "Tenant name" in options["tenant"].help
+    assert "Username for authentication" in options["username"].help
+    assert "password field" in options["password"].help
+
+
+@pytest.mark.unit
+def test_generate_endpoints_swagger2_resolves_parameter_and_body_schema_refs(
+    tmp_path, monkeypatch
+):
+    swagger = {
+        "swagger": "2.0",
+        "paths": {
+            "/widgets": {
+                "post": {
+                    "description": "Create widget",
+                    "parameters": [
+                        {"$ref": "#/parameters/limitParam"},
+                        {
+                            "name": "payload",
+                            "in": "body",
+                            "required": True,
+                            "schema": {"$ref": "#/definitions/CreateWidgetRequest"},
+                        },
+                    ],
+                }
+            }
+        },
+        "parameters": {
+            "limitParam": {
+                "name": "limit",
+                "in": "query",
+                "description": "Result limit",
+                "required": False,
+                "type": "integer",
+            }
+        },
+        "definitions": {
+            "CreateWidgetRequest": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                    "name": {"type": "string", "description": "Widget name"},
+                    "count": {"type": "integer"},
+                },
+            }
+        },
+    }
+    (tmp_path / "swagger.json").write_text(json.dumps(swagger))
+
+    config_path = tmp_path / "config.ini"
+    config_path.write_text(
+        """
+[api]
+base_url = https://example.com:12345/
+dev_url = https://example.com:12345/
+"""
+    )
+
+    monkeypatch.setattr(_main, "CONFIG_DIR", str(tmp_path))
+    cli = FerryCLI(config_path=config_path, authorizer=DummyTokenAuthorizer())
+    endpoints = cli.generate_endpoints()
+
+    parser = endpoints["widgets"]
+    options = {
+        action.dest: action for action in parser._actions if action.dest != "help"
+    }
+
+    assert "limit" in options
+    assert "name" in options
+    assert "count" in options
+    assert options["limit"].required is False
+    assert options["name"].required is True
+    assert options["count"].required is False
+    assert "Result limit" in options["limit"].help
+    assert "Widget name" in options["name"].help
+    assert "count field" in options["count"].help

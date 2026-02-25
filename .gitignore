@@ -10,6 +10,7 @@ result.json
 .git
 swagger.json
 config/swagger.json
+ferry_cli/output/*
 
 # Testing artifacts
 /tmp/*

@@ -4,9 +4,11 @@ import time
 from typing import Dict, Any
 import json
 import os
+from urllib.parse import urlencode
 
 from ferry_cli.helpers.api import FerryAPI
 from ferry_cli.helpers.auth import AuthToken
+import ferry_cli.helpers.api as _api
 
 TokenGetCommand = "htgettoken"
 tokenDestroyCommand = "htdestroytoken"
@@ -117,6 +119,156 @@ def test_getAllGroups(getEncodedToken, sendToEndpoint):
     result = sendToEndpoint(getEncodedToken, "getAllGroups")
     assert (result["ferry_status"]) == "success"
     assert result["ferry_output"]  # Make sure we got non-empty result
+
+
+@pytest.mark.unit
+def test_call_endpoint_uses_auth_header_provider_for_each_request(monkeypatch):
+    seen_headers = []
+
+    class DummyAuthorizer:
+        token_string = "stale-token"
+
+        def __call__(self, session):
+            return session
+
+    class FakeResponse:
+        def __init__(self, request_url):
+            self.ok = True
+            self.request = type("Request", (), {"url": request_url})
+
+        def json(self):
+            return {"ferry_status": "success"}
+
+    class FakeSession:
+        def get(self, url, headers=None, params=None):
+            seen_headers.append(dict(headers or {}))
+            return FakeResponse(url)
+
+    monkeypatch.setattr(_api.requests, "Session", lambda: FakeSession())
+
+    call_count = {"value": 0}
+    expected_tokens = ["token-one", "token-two"]
+
+    def header_provider():
+        token_value = expected_tokens[call_count["value"]]
+        call_count["value"] += 1
+        return {"Authorization": f"Bearer {token_value}"}
+
+    api = FerryAPI(
+        base_url="https://example.com/",
+        authorizer=DummyAuthorizer(),
+        auth_header_provider=header_provider,
+    )
+
+    api.call_endpoint("ping")
+    api.call_endpoint("ping")
+
+    assert seen_headers[0]["Authorization"] == "Bearer token-one"
+    assert seen_headers[1]["Authorization"] == "Bearer token-two"
+    assert seen_headers[0]["accept"] == "application/json"
+    assert seen_headers[1]["accept"] == "application/json"
+
+
+@pytest.mark.unit
+def test_call_endpoint_disables_tls_verification_when_insecure(monkeypatch):
+    seen_verify = []
+
+    class DummyAuthorizer:
+        def __call__(self, session):
+            return session
+
+    class FakeResponse:
+        ok = True
+        request = type("Request", (), {"url": "https://example.com/ping"})
+
+        def json(self):
+            return {"ferry_status": "success"}
+
+    class FakeSession:
+        def __init__(self):
+            self.verify = True
+
+        def get(self, url, headers=None, params=None):
+            seen_verify.append(self.verify)
+            return FakeResponse()
+
+    monkeypatch.setattr(_api.requests, "Session", lambda: FakeSession())
+
+    api = FerryAPI(
+        base_url="https://example.com/",
+        authorizer=DummyAuthorizer(),
+        insecure=True,
+    )
+
+    api.call_endpoint("ping")
+
+    assert seen_verify == [False]
+
+
+@pytest.mark.unit
+def test_call_endpoint_substitutes_path_parameters_and_omits_from_query(monkeypatch):
+    seen_request = {}
+
+    class DummyAuthorizer:
+        def __call__(self, session):
+            return session
+
+    class FakeResponse:
+        def __init__(self, request_url):
+            self.ok = True
+            self.request = type("Request", (), {"url": request_url})
+
+        def json(self):
+            return {"ferry_status": "success"}
+
+    class FakeSession:
+        def get(self, url, headers=None, params=None):
+            seen_request["url"] = url
+            seen_request["params"] = dict(params or {})
+            request_url = url
+            if params:
+                request_url = f"{url}?{urlencode(params)}"
+            return FakeResponse(request_url)
+
+    monkeypatch.setattr(_api.requests, "Session", lambda: FakeSession())
+
+    api = FerryAPI(
+        base_url="https://example.com/",
+        authorizer=DummyAuthorizer(),
+    )
+
+    task_id = "39406b65-c133-4bb9-ab49-8a0f39ea8cf9"
+    response = api.call_endpoint(
+        "tasks/{taskID}",
+        params={"taskID": task_id, "include": "details"},
+    )
+
+    assert seen_request["url"] == f"https://example.com/tasks/{task_id}"
+    assert seen_request["params"] == {"include": "details"}
+    assert response["request_url"] == f"https://example.com/tasks/{task_id}?include=details"
+
+
+@pytest.mark.unit
+def test_call_endpoint_raises_when_path_parameter_is_missing(monkeypatch):
+    class DummyAuthorizer:
+        def __call__(self, session):
+            return session
+
+    class FakeSession:
+        def get(self, url, headers=None, params=None):  # pragma: no cover
+            raise AssertionError("Session.get should not be called")
+
+    monkeypatch.setattr(_api.requests, "Session", lambda: FakeSession())
+
+    api = FerryAPI(
+        base_url="https://example.com/",
+        authorizer=DummyAuthorizer(),
+    )
+
+    with pytest.raises(ValueError) as exc:
+        api.call_endpoint("tasks/{taskID}")
+
+    assert "taskID" in str(exc.value)
 
 
 # --- test helper functions
