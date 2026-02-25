@@ -83,6 +83,22 @@ If you wish to use a custom "**token-path**" for your token, you can set the sta
 
 If a token is not found in the default or custom paths, the CLI will return an error stating that an authentication method is required.
 
+You may also configure token behavior directly in `config.ini`:
+```ini
+[token-auth]
+token_path = "/run/user/{uid}/bt_u{uid}"
+token_format = "json"      # "json" or "raw"
+token_header = "Bearer {token}"
+```
+
+If `token_format = "json"` and the token is expired, ferry-cli will attempt to refresh it using:
+```ini
+[authorization]
+authentication_file = "/path/to/auth.json"
+authenticate_url = "https://{ferry_url}/api/auth/login"
+```
+and then persist the refreshed token back to `token_path`.
+
 #### X509 USER PROXY
 If you wish to use a cert, you can do so by running:
 ```bash
@@ -91,6 +107,7 @@ kx509
 ferry-cli -a cert --cert_path=/tmp/x509up_u{uid} --ca_path=/etc/grid-security/certificates ARGS
 ```
 > The paths above are the default paths. The cli will check there by default and at **$X509_USER_PROXY** if defined.
+> For local/dev environments, you may pass `--insecure` to disable SSL certificate verification.
 
 
 ## USAGE
@@ -102,7 +119,7 @@ To begin, simply run:  ferry-cli
 
 ``` bash
 $ ferry-cli
-usage: ferry-cli [-h] [-a AUTH_METHOD] [--token-path TOKEN_PATH | --cert-path CERT_PATH] [--ca-path CA_PATH] [-d] [-q] [-u] [--filter FILTER] [-le] [-lw] [-ep ENDPOINT_PARAMS] [-wp WORKFLOW_PARAMS] [-e ENDPOINT] [-w WORKFLOW]
+usage: ferry-cli [-h] [-a AUTH_METHOD] [--token-path TOKEN_PATH | --cert-path CERT_PATH] [--ca-path CA_PATH] [--insecure] [--dryrun | -d | -q] [-u] [--support_email] [-s SERVER] [--version] [--output OUTPUT] [--filter FILTER] [-le] [-lw] [-ep ENDPOINT_PARAMS] [-wp WORKFLOW_PARAMS] [-e ENDPOINT] [-w WORKFLOW] [--show-config-file]
 
 CLI for Ferry API endpoints
 
@@ -115,11 +132,18 @@ optional arguments:
   --cert-path CERT_PATH
                         Path to cert
   --ca-path CA_PATH     Certificate authority path
+  --insecure            Disable SSL certificate verification for API requests
+  --dryrun              Populate the API call(s) but don't actually run them
   -d, --debug           Turn on debugging
   -q, --quiet           Hide output
   -u, --update          Get latest swagger file
   --support_email       Get Ferry CLI support emails
+  -s SERVER, --server SERVER
+                        Server URL to use instead of configuration file api.base_url value
   --version             Get Ferry CLI version
+  --output OUTPUT       (string) Specifies the path to a file where the output
+                        will be stored in JSON format. If a file already exists in
+                        the specified path, it will be overritten.
   --filter FILTER       (string) Use to filter results on -le and -lw flags
   -le, --list_endpoints
                         List all available endpoints
@@ -133,7 +157,9 @@ optional arguments:
                         API endpoint and parameters
   -w WORKFLOW, --workflow WORKFLOW
                         Execute supported workflows
+  --show-config-file    Locate and print configuration file, if it exists, then exit.
 ```
+> On update (`-u`), ferry-cli will try `/spec` first, and fall back to `/docs/swagger.json`.
 ---
 ## Safeguards
 Not all ferry endpoints should be used by DCS, or other groups that may be using this. Therefore:
@@ -218,6 +244,7 @@ optional arguments:
   --vopersonid VOPERSONID
                         (string) | UUID for whom the attributes are to be returned
 ```
+> Endpoint parameter generation now resolves OpenAPI/Swagger `$ref` entries (including request/body schemas), so `-ep/--endpoint_params` reflects inherited or referenced fields when available.
 
 ### Call an endpoint:
 ``` bash
@@ -241,8 +268,16 @@ Response: {
     }
 }
 ```
-> Note: All responses are currently stored locally in results.json if the -q flag is not passed, for longer responses - stdout will point to the file, rather than print them in the terminal.
+> Note: Responses are printed to stdout by default (unless `-q/--quiet` is passed). If you want JSON written to disk, pass `--output=/path/to/output.json`.
+> Note: If an endpoint returns a top-level list or scalar value, ferry-cli will normalize the response to `{ "response": ... }` and still include `request_url`.
 > Endpoints & Workflows that are passed as arguments will be converted to camelCase automatically, however - leading underscores will be preserved, so be sure to use the correct spelling.
+
+### Call templated endpoints directly:
+If swagger defines an endpoint with path params (for example `tasks/{taskID}`), you can call it directly with concrete values:
+``` bash
+$ ferry-cli -e tasks/39406b65-c133-4bb9-ab49-8a0f39ea8cf9 --view=summary
+```
+The CLI will resolve this to the templated endpoint and pass `taskID` automatically.
 
 ## Usage - Custom Workflows
 Existing workflows are defined in helpers.supported_workflows.*
